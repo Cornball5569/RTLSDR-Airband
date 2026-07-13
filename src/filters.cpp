@@ -161,3 +161,128 @@ void LowpassFilter::apply(float& r, float& j) {
     r = yv[2].real();
     j = yv[2].imag();
 }
+
+// Default constructor is no filter
+BandpassFilter::BandpassFilter(void) : enabled_(false) {}
+
+// 4th order Butterworth bandpass filter
+// Based on https://www-users.cs.york.ac.uk/~fisher/mkfilter/
+// Implemented for I/Q (complex) audio samples
+BandpassFilter::BandpassFilter(float low_freq, float high_freq, float sample_freq) : enabled_(true) {
+    if (low_freq <= 0.0 || high_freq <= 0.0 || low_freq >= high_freq) {
+        debug_print("Invalid bandpass frequencies low=%f Hz high=%f Hz, disabling bandpass filter\n", low_freq, high_freq);
+        enabled_ = false;
+        return;
+    }
+
+    debug_print("Adding bandpass filter %f-%f Hz with sample rate %f\n", low_freq, high_freq, sample_freq);
+
+    double wlow = (double)low_freq / sample_freq;
+    double whigh = (double)high_freq / sample_freq;
+    double wc = tan(M_PI * (whigh - wlow) / 2.0) / tan(M_PI * (whigh + wlow) / 2.0);
+    double dw = 2.0 * tan(M_PI * (whigh - wlow) / 2.0);
+
+    // 4th order Butterworth: 2 complex pole pairs
+    complex<double> pole1(-0.54119610014556980, 0.84125353283118654);
+    complex<double> pole2(-1.30656296487637652, 0.38625409911928063);
+
+    // Transform lowpass poles to bandpass
+    complex<double> poles_bp[4];
+    for (int i = 0; i < 2; i++) {
+        complex<double> p = (i == 0) ? pole1 : pole2;
+        complex<double> p_warped = (2.0 + p) / (2.0 - p);
+        complex<double> p_scaled = p_warped * complex<double>(wc, 0.0);
+        complex<double> discriminant = p_scaled * p_scaled - complex<double>(1.0, 0.0);
+        
+        poles_bp[i] = (p_scaled + sqrt(discriminant)) / dw;
+        poles_bp[2 + i] = (p_scaled - sqrt(discriminant)) / dw;
+    }
+
+    // Expand poles into polynomial coefficients
+    complex<double> zeros_bp[4] = {-1.0, -1.0, 1.0, 1.0};
+    complex<double> topcoeffs[5], botcoeffs[5];
+    
+    expand(zeros_bp, 4, topcoeffs);
+    expand(poles_bp, 4, botcoeffs);
+    
+    // Calculate gain at center frequency
+    complex<double> center_freq(0.0, 2.0 * M_PI * (low_freq + high_freq) / (2.0 * sample_freq));
+    complex<double> gain_complex = evaluate(topcoeffs, 4, botcoeffs, 4, exp(center_freq));
+    gain = hypot(gain_complex.imag(), gain_complex.real());
+    
+    if (gain < 1e-10f) {
+        gain = 1.0f;
+    }
+
+    // Normalize coefficients
+    for (int i = 0; i <= 4; i++) {
+        ycoeffs[i] = -(botcoeffs[i].real() / botcoeffs[4].real());
+    }
+
+    debug_print("bandpass gain: %f\n", gain);
+}
+
+complex<double> BandpassFilter::blt(complex<double> pz) {
+    return (2.0 + pz) / (2.0 - pz);
+}
+
+complex<double> BandpassFilter::evaluate(complex<double> topco[], int nz, complex<double> botco[], int np, complex<double> z) {
+    return eval(topco, nz, z) / eval(botco, np, z);
+}
+
+complex<double> BandpassFilter::eval(complex<double> coeffs[], int npz, complex<double> z) {
+    complex<double> sum(0.0);
+    for (int i = npz; i >= 0; i--) {
+        sum = (sum * z) + coeffs[i];
+    }
+    return sum;
+}
+
+void BandpassFilter::expand(complex<double> pz[], int npz, complex<double> coeffs[]) {
+    coeffs[0] = 1.0;
+    for (int i = 0; i < npz; i++) {
+        coeffs[i + 1] = 0.0;
+    }
+    for (int i = 0; i < npz; i++) {
+        multin(pz[i], npz, coeffs);
+    }
+    /* check computed coeffs of z^k are all real */
+    for (int i = 0; i < npz + 1; i++) {
+        if (fabs(coeffs[i].imag()) > 1e-10) {
+            log(LOG_ERR, "coeff of z^%d is not real; poles/zeros are not complex conjugates\n", i);
+            error();
+        }
+    }
+}
+
+void BandpassFilter::multin(complex<double> w, int npz, complex<double> coeffs[]) {
+    /* multiply factor (z-w) into coeffs */
+    complex<double> nw = -w;
+    for (int i = npz; i >= 1; i--) {
+        coeffs[i] = (nw * coeffs[i]) + coeffs[i - 1];
+    }
+    coeffs[0] = nw * coeffs[0];
+}
+
+void BandpassFilter::apply(float& r, float& j) {
+    if (!enabled_) {
+        return;
+    }
+
+    complex<float> input(r, j);
+
+    xv[0] = xv[1];
+    xv[1] = xv[2];
+    xv[2] = xv[3];
+    xv[3] = xv[4];
+    xv[4] = input / gain;
+
+    yv[0] = yv[1];
+    yv[1] = yv[2];
+    yv[2] = yv[3];
+    yv[3] = yv[4];
+    yv[4] = (xv[0] + xv[4]) - (2.0f * xv[2]) + (ycoeffs[0] * yv[0]) + (ycoeffs[1] * yv[1]) + (ycoeffs[2] * yv[2]) + (ycoeffs[3] * yv[3]);
+
+    r = yv[4].real();
+    j = yv[4].imag();
+}
