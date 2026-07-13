@@ -60,4 +60,26 @@ class LowpassFilter {
     std::complex<float> yv[3];
 };
 
+class BandpassFilter {
+   public:
+    BandpassFilter(void);
+    BandpassFilter(float low_freq, float high_freq, float sample_freq);
+    void apply(float& r, float& j);
+    bool enabled(void) const { return enabled_; }
+
+   private:
+    static std::complex<double> blt(std::complex<double> pz);
+    static void expand(std::complex<double> pz[], int npz, std::complex<double> coeffs[]);
+    static void multin(std::complex<double> w, int npz, std::complex<double> coeffs[]);
+    static std::complex<double> evaluate(std::complex<double> topco[], int nz, std::complex<double> botco[], int np, std::complex<double> z);
+    static std::complex<double> eval(std::complex<double> coeffs[], int npz, std::complex<double> z);
+
+    bool enabled_;
+    float ycoeffs[5];
+    float gain;
+
+    std::complex<float> xv[5];
+    std::complex<float> yv[5];
+};
+
 #endif /* _FILTERS_H */
