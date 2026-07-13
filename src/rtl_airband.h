@@ -101,6 +101,11 @@ extern "C" void samplefft(sample_fft_arg* a, unsigned char* buffer, float* windo
 enum status { NO_SIGNAL = ' ', SIGNAL = '*', AFC_UP = '<', AFC_DOWN = '>' };
 enum ch_states { CH_DIRTY, CH_WORKING, CH_READY };
 enum mix_modes { MM_MONO, MM_STEREO };
+enum bandpass_filter_mode {
+    BPF_NONE = 0,      // No filter
+    BPF_25KHZ = 1,     // 300-3400 Hz (wide, 25kHz equivalent)
+    BPF_8_33KHZ = 2    // 350-2500 Hz (narrow, 8.33kHz equivalent)
+};
 enum output_type {
     O_ICECAST,
     O_FILE,
@@ -245,9 +250,10 @@ struct freq_t {
     float agcavgfast;  // average power, for AGC
     float ampfactor;   // multiplier to increase / decrease volume
     Squelch squelch;
-    size_t active_counter;         // count of loops where channel has signal
-    NotchFilter notch_filter;      // notch filter - good to remove CTCSS tones
-    LowpassFilter lowpass_filter;  // lowpass filter, applied to I/Q after derotation, set at bandwidth/2 to remove out of band noise
+    size_t active_counter;           // count of loops where channel has signal
+    NotchFilter notch_filter;        // notch filter - good to remove CTCSS tones
+    LowpassFilter lowpass_filter;    // lowpass filter, applied to I/Q after derotation, set at bandwidth/2 to remove out of band noise
+    BandpassFilter bandpass_filter;  // bandpass filter for audio (350-2500 Hz or 300-3400 Hz)
     enum modulations modulation;
 };
 struct channel_t {
